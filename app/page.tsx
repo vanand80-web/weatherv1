@@ -1,0 +1,55 @@
+"use client";
+import {useCallback,useEffect,useMemo,useState} from "react";
+import {Activity,CalendarDays,Cloud,CloudRain,LocateFixed,MapPin,RefreshCw,Search,Sun,Wind} from "lucide-react";
+import {airBand,Day,description,findPlaces,forecast,outdoor,Place} from "@/lib/weather";
+
+const initial:Place={name:"Dubai",country:"United Arab Emirates",latitude:25.2048,longitude:55.2708};
+const day=(s:string)=>new Date(s+"T12:00:00").toLocaleDateString(undefined,{weekday:"short"});
+const date=(s:string)=>new Date(s+"T12:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});
+const weatherIcon=(c:number)=>c===0||c===1?<Sun/>:[51,53,55,61,63,65,80,81,82,95,96,99].includes(c)?<CloudRain/>:<Cloud/>;
+
+export default function Home(){
+ const [place,setPlace]=useState<Place>(initial),[days,setDays]=useState<Day[]>([]),[q,setQ]=useState(""),[hits,setHits]=useState<Place[]>([]);
+ const [loading,setLoading]=useState(false),[error,setError]=useState(""),[updated,setUpdated]=useState<Date|null>(null),[unit,setUnit]=useState("C"),[chosen,setChosen]=useState<Day|null>(null);
+ const load=useCallback(async(p:Place,quiet=false)=>{if(!quiet)setLoading(true);setError("");try{setDays(await forecast(p));setUpdated(new Date())}catch(e:unknown){setError(e instanceof Error?e.message:"Unable to load forecast")}finally{setLoading(false)}},[]);
+ useEffect(()=>{void load(place);const timer=window.setInterval(()=>void load(place,true),900000);return()=>window.clearInterval(timer)},[place,load]);
+ async function search(e:React.FormEvent){e.preventDefault();if(!q.trim())return;setLoading(true);try{const r=await findPlaces(q.trim());setHits(r);if(!r.length)setError("No matching locations found")}catch(e:unknown){setError(e instanceof Error?e.message:"Search failed")}finally{setLoading(false)}}
+ const select=(p:Place)=>{setPlace(p);setHits([]);setQ("");setChosen(null)};
+ function locate(){if(!navigator.geolocation){setError("Geolocation is not supported.");return}setLoading(true);navigator.geolocation.getCurrentPosition(pos=>{select({name:"Your location",latitude:pos.coords.latitude,longitude:pos.coords.longitude});setLoading(false)},()=>{setError("Location permission unavailable. Search for a city instead.");setLoading(false)},{timeout:10000})}
+ const best=useMemo(()=>days.map(d=>({...d,...outdoor(d)})).sort((a,b)=>b.score-a.score).slice(0,3),[days]);
+ const today=days[0],aqi=today?.aqi===null||today?.aqi===undefined?null:Math.round(today.aqi),band=airBand(aqi);
+ const temp=(v:number)=>Math.round(unit==="C"?v:v*9/5+32);
+
+ return <main className="min-h-screen pb-12">
+  <header className="topbar"><div className="shell flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+   <div className="flex items-center gap-3"><div className="brand-mark"><Sun size={22}/></div><div><b className="text-xl tracking-tight">Atmos</b><p className="muted text-xs">Weather intelligence & outdoor planner</p></div></div>
+   <div className="flex items-center gap-3"><span className="live-dot"/><span className="muted text-xs">Auto-refresh · 15 min</span><button className="icon-button" title="Refresh now" onClick={()=>void load(place)}><RefreshCw size={16}/></button></div>
+  </div></header>
+
+  <div className="shell px-5 py-8">
+   <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">YOUR WEATHER, AT A GLANCE</p><h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Plan your week with confidence.</h1><p className="muted mt-2 text-sm">Forecast signals, air quality and practical outdoor-day guidance.</p></div><p className="muted text-xs">Updated {updated?updated.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"when data loads"}</p></div>
+
+   <section className="panel search-panel mb-6 p-4"><div className="flex flex-wrap gap-2"><form onSubmit={search} className="flex min-w-[250px] flex-1 gap-2"><div className="search-wrap relative flex-1"><Search className="muted absolute left-3 top-3" size={17}/><input className="field w-full pl-10" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search a city or place…"/></div><button className="primary-button">Search</button></form><button onClick={locate} className="secondary-button flex items-center gap-2"><LocateFixed size={16}/>Use my location</button><div className="unit-switch"><button onClick={()=>setUnit("C")} className={unit==="C"?"active":""}>°C</button><button onClick={()=>setUnit("F")} className={unit==="F"?"active":""}>°F</button></div></div>
+    {hits.length>0&&<div className="mt-3 flex flex-wrap gap-2">{hits.map((p,i)=><button key={i} onClick={()=>select(p)} className="place-result"><b>{p.name}</b><span className="muted"> · {[p.admin1,p.country].filter(Boolean).join(", ")}</span></button>)}</div>}{error&&<p className="mt-3 text-sm text-rose-300">{error}</p>}
+   </section>
+
+   {today&&<section className="mb-8 grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+    <div className="hero-weather panel p-6 sm:p-8"><div className="hero-glow"/><div className="relative z-10"><p className="flex items-center gap-2 text-sm text-slate-300"><MapPin size={15}/>{place.name}{place.country?", "+place.country:""}</p>
+     <div className="mt-7 flex flex-wrap items-center justify-between gap-5"><div><p className="hero-kicker">TODAY’S HIGH</p><div className="temperature-line"><span className="hero-temp">{temp(today.hi)}°</span><span className="hero-unit">{unit}</span></div><p className="mt-1 text-lg font-medium text-slate-200">{description(today.code)}</p><p className="muted mt-1 text-sm">{day(today.date)} · {date(today.date)}</p></div><div className="hero-weather-icon">{weatherIcon(today.code)}</div></div>
+     <div className="temp-range-row"><div className="temp-range"><span className="range-label">HIGH</span><b>{temp(today.hi)}°</b></div><div className="range-divider"/><div className="temp-range"><span className="range-label">LOW</span><b>{temp(today.lo)}°</b></div><span className="range-note">Daily temperature range</span></div>
+     <div className="hero-metrics">{[["Rain chance",today.prob+"%"],["Wind",Math.round(today.wind)+" km/h"],["UV index",today.uv.toFixed(1)],["Rainfall",today.rain.toFixed(1)+" mm"]].map(([a,b])=><div key={a} className="metric-tile"><p>{a}</p><b>{b}</b></div>)}</div>
+    </div></div>
+    <div className="panel air-panel p-6"><div className="flex items-start justify-between gap-3"><div><p className="muted text-sm">Air quality · US AQI</p><p className="aqi-number mt-2">{aqi??"—"}</p><p className="muted mt-1 text-xs">Daily average estimate</p></div><span className="aqi-pill">{band[0]}</span></div><p className="muted mt-4 text-sm leading-6">{band[1]}</p><div className="air-grid mt-6">{[["European AQI",today.eu===null?"—":Math.round(today.eu)],["PM2.5",today.pm25===null?"—":today.pm25.toFixed(1)+" µg/m³"],["PM10",today.pm10===null?"—":today.pm10.toFixed(1)+" µg/m³"],["Ozone",today.ozone===null?"—":today.ozone.toFixed(1)+" µg/m³"]].map(([l,v])=><div key={String(l)} className="air-stat"><p>{l}</p><b>{v}</b></div>)}</div><p className="muted mt-5 text-xs leading-5">Daily average of hourly modelled values. US and European AQI scales are different.</p></div>
+   </section>}
+
+   <section className="mb-8"><div className="section-heading mb-4"><div><h2 className="text-xl font-semibold">Next 7 days</h2><p className="muted mt-1 text-sm">A clear look at temperature, wind, UV and air quality</p></div><span className="section-tag">7-DAY FORECAST</span></div>
+    {loading&&!days.length?<div className="panel p-10 text-center muted">Loading forecast…</div>:<div className="forecast-grid">{days.map((d,i)=>{const score=outdoor(d);return <button key={d.date} onClick={()=>setChosen(d)} className={`forecast-card panel text-left ${chosen?.date===d.date?"selected":""}`}><div className="flex items-center justify-between"><b className="day-name">{i===0?"Today":day(d.date)}</b><span className="muted text-xs">{date(d.date)}</span></div><div className="forecast-icon">{weatherIcon(d.code)}</div><p className="forecast-description">{description(d.code)}</p><div className="forecast-temps"><div><span>H</span><b>{temp(d.hi)}°</b></div><div><span>L</span><b>{temp(d.lo)}°</b></div></div><div className="forecast-details">{[["Rain",d.prob+"%"],["Wind",Math.round(d.wind)+" km/h"],["US AQI",d.aqi===null?"—":Math.round(d.aqi)],["UV max",d.uv.toFixed(1)]].map(([k,v])=><div key={k}><span>{k}</span><b>{v}</b></div>)}</div><div className="score-box"><div className="flex justify-between text-xs"><span>Outdoor score</span><b>{score.score}/100</b></div><div className="score-track mt-2"><div className="score-fill" style={{width:score.score+"%"}}/></div></div></button>})}</div>}
+   </section>
+
+   <section className="grid gap-4 lg:grid-cols-2"><div className="panel p-5 sm:p-6"><div className="mb-5 flex items-center gap-3"><div className="section-icon"><CalendarDays size={19}/></div><div><h2 className="font-semibold">Best days to go out</h2><p className="muted text-xs">Ranked by an explainable comfort score</p></div></div>{best.map((d,i)=><div key={d.date} className="best-row"><div className="min-w-0"><b>{day(d.date)}, {date(d.date)}</b><p className="muted mt-1 text-xs">{d.verdict}</p><p className="muted mt-2 text-xs leading-5">{d.why.length?d.why.join(" · "):"No major weather or air-quality penalties detected."}</p></div><b className="best-score">{d.score}<small>/100</small></b></div>)}</div>
+    <div className="panel p-5 sm:p-6"><div className="mb-5 flex items-center gap-3"><div className="section-icon"><Activity size={19}/></div><div><h2 className="font-semibold">Scientist’s readout</h2><p className="muted text-xs">A closer look at the selected day</p></div></div>{chosen?<><b>{day(chosen.date)}, {date(chosen.date)}</b><p className="muted mt-3 text-sm leading-6">{description(chosen.code)} with a high of {temp(chosen.hi)}° and low of {temp(chosen.lo)}°. Rain probability {chosen.prob}%, max wind {Math.round(chosen.wind)} km/h and peak UV {chosen.uv.toFixed(1)}.</p><p className="muted mt-3 text-sm leading-6">US AQI: {chosen.aqi===null?"unavailable":Math.round(chosen.aqi)+" ("+airBand(chosen.aqi)[0]+")"}; PM2.5: {chosen.pm25===null?"unavailable":chosen.pm25.toFixed(1)+" µg/m³"}.</p><p className="assessment mt-4 text-sm">Planning assessment: {outdoor(chosen).verdict}. {outdoor(chosen).why.join(". ")}</p></>:<p className="muted text-sm leading-7">Select a day in the forecast to inspect conditions. The outdoor score weighs rain probability, wind, US AQI, UV and high temperatures. It is a planning aid, not an official forecast or health advisory. Check hourly conditions and local alerts before heading out.</p>}</div>
+   </section>
+   <footer className="muted mt-8 border-t border-white/10 pt-5 text-xs leading-6">Weather and air-quality data from Open-Meteo. AQI values are daily averages of hourly model estimates; US AQI and European AQI use different scales. Outdoor recommendations use a simple transparent heuristic, not a validated meteorological model or safety guarantee. Follow official weather and public-health advisories.</footer>
+  </div>
+ </main>;
+}
